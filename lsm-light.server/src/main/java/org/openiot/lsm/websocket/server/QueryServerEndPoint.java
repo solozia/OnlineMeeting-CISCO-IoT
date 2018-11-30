@@ -1,0 +1,300 @@
+package org.openiot.lsm.websocket.server;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.io.StringReader;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.json.Json;
+import javax.json.JsonArray;
+import javax.json.JsonObject;
+import javax.websocket.OnClose;
+import javax.websocket.OnMessage;
+import javax.websocket.OnOpen;
+import javax.websocket.Session;
+import javax.websocket.server.ServerEndpoint;
+
+import org.json.JSONObject;
+import org.openiot.lsm.manager.CQELSManager;
+import org.openiot.lsm.reasoning.data.Constants;
+import org.openjena.atlas.json.io.parser.JSONParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.hp.hpl.jena.query.Query;
+import com.hp.hpl.jena.query.QueryExecution;
+import com.hp.hpl.jena.query.QueryExecutionFactory;
+import com.hp.hpl.jena.query.QueryFactory;
+import com.hp.hpl.jena.query.QuerySolution;
+import com.hp.hpl.jena.query.ResultSet;
+import com.hp.hpl.jena.query.ResultSetFormatter;
+import com.hp.hpl.jena.sparql.engine.http.QueryEngineHTTP;
+//import com.sleepycat.je.log.FileReader;
+
+@ServerEndpoint(value = "/query")
+public class QueryServerEndPoint {
+	final static Logger logger = LoggerFactory.getLogger(QueryServerEndPoint.class);
+	String SensorType="";
+	String sType="";
+	String ExSensorID="";
+	String cqelsQuery="";
+//    String sensorID="";
+//    String ObservedProperty="";
+	Session userSession = null;
+	public CQELSManager cqelsManager = CQELSManager.getCQELSManager();
+
+	@OnOpen
+	public void onOpen(Session userSession) {
+		logger.info("New request received. Id: " + userSession.getId());
+		//THU 20150506--->
+		this.userSession = userSession;
+		///<------
+	}
+
+	@OnClose
+	public void onClose(Session userSession) {
+		logger.info("Connection closed. Id: " + userSession.getId());
+		userSession = null;
+	}
+
+	@OnMessage
+	public void onMessage(String message, Session userSession) {
+		System.out.println("QueryServerEndPoint: onMessage(): message: "+ message);
+		JsonObject jsonObject = Json.createReader(new StringReader(message)).readObject();
+		
+		//JSON object array 23rd feb//smo
+		
+		String MeetingID =jsonObject.getString("MEETING_ID");
+		getThreshold(MeetingID);
+		JsonArray userA = (JsonArray) jsonObject.get("user");
+		JsonArray capA = (JsonArray) jsonObject.get("capability");
+		
+		for(int i=0; i<userA.size(); i++){
+			for (int j=0; j<capA.size(); j++){
+				String uid=userA.get(i).toString();
+				String cap=capA.get(j).toString();
+			String ExUid=uid.substring(uid.indexOf(":")+2, uid.indexOf("}")-1);
+			
+			//THU: initilize userFlags
+			cqelsManager.getUserFlags().put(ExUid, cqelsManager.initFlags());
+			
+			String Excap=cap.substring(cap.indexOf(":")+2, cap.indexOf("}")-1);
+			System.out.println("UserID:  "+ExUid+" ---------Capability: "+Excap);
+			
+//			if (Excap.contains("Location")){
+//			String LatitudeQuery=getCQELSquery(ExUid, "Latitude");
+//			String LongitudeQuery=getCQELSquery(ExUid, "Longitude");
+//			System.out.println("LatitudeQuery:"+LatitudeQuery+"LongitudeQuery:"+LongitudeQuery);
+//			cqelsManager.registerSelect(LatitudeQuery, userSession, ExUid, MeetingID);
+//			cqelsManager.registerSelect(LongitudeQuery, userSession, ExUid, MeetingID);
+//			}else
+			
+			
+			//Zia -SPARQL query start time
+			String sensorID= getSensorIDorObservedProperty(ExUid, Excap, "sid");
+			String ObservedProperty=getSensorIDorObservedProperty(ExUid, Excap, "op");
+			//Zia- SPARQL query results finsih
+			
+			//Zia CQELS query start time
+			cqelsQuery = getCQELSquery(sensorID, Excap, ObservedProperty);
+			// Zia CQELS query generation finish time
+			
+			cqelsManager.registerSelect(cqelsQuery, userSession, ExUid, MeetingID);
+			//CQELS query registered to engine
+//			System.out.println("getCQELSquery(ExUid, Excap)"+getCQELSquery(ExUid, Excap));
+			
+			System.out.println("getCQELSquery(ExUid, Excap):"+cqelsQuery);
+
+			}
+		}
+
+		//JSON object array 23rd feb//smo end
+		
+//		String userID = jsonObject.getString("USER_ID");
+//		if(userID==null){
+//			
+//		}
+//		System.out.println("QueryServerEndPoint: onMessage(): userID: "
+//				+ userID);
+//		System.out.println("Sending to " + userSession.getId());
+//		// in future it should be change: user name can be null
+//		if (!userID.contains("null")) {
+//			cqelsManager.registerSelect(cqelsQuery, userSession, userID);
+//		} else
+//			userSession.getAsyncRemote().sendText(
+//					Json.createObjectBuilder().add("USER_ID", userID)
+//							.add("NOISE", "" + false)
+//							.add("PROXIMITY", "" + true).build().toString());
+	}
+
+	private String getSensorIDorObservedProperty(String userID, String Capability, String returnType) {
+		String sid = "";
+		String observedProperty = "";
+
+		// TO DO sparql query
+		String sensorIDorObservedPropertyQuery = "SELECT DISTINCT ?sensorID ?observedProperty WHERE {\n"
+				+ "<http://www.semanticdesktop.org/ontologies/2007/11/01/pimo/"
+				+ userID
+				+ "> <http://www.semanticdesktop.org/ontologies/2011/10/05/ddo#owns> ?deviceID . \n"
+				+ "?sensorID <http://purl.oclc.org/NET/ssnx/ssn#onPlatform> ?deviceID . \n"
+				+ "?resource  <http://purl.oclc.org/NET/ssnx/ssn#observedBy> ?sensorID . \n"
+				+ "?resource2 <http://lsm.deri.ie/ont/lsm.owl#isObservedPropertyOf> ?resource .  \n"
+				+ "?resource2 <http://www.w3.org/2000/01/rdf-schema#label> "
+				+ "\""
+				+ Capability
+				+ "\""
+				+ " . \n"
+				+ "?resource2 <http://purl.oclc.org/NET/ssnx/ssn#observedProperty> ?observedProperty .  \n"
+
+				// +
+				// "?ObservedProperty <http://www.w3.org/2000/01/rdf-schema#label> ?sensorType . \n"
+				// +
+				// "?ObservedProperty <http://www.w3.org/2000/01/rdf-schema#label> \"Light\" . \n"
+				+ "}\n";
+		 System.out.println("sensorIDorObservedPropertyQuery: \n" + sensorIDorObservedPropertyQuery);
+
+		Query query = QueryFactory.create(sensorIDorObservedPropertyQuery);
+//		QueryExecution qexec = QueryExecutionFactory.sparqlService(
+//				"http://srvgal90.deri.ie:8890/sparql", query);
+		QueryExecution qexec = QueryExecutionFactory.sparqlService(
+				"http://srvgal89.deri.ie:8007/sparql", query);
+		// Set the DBpedia specific timeout.
+		((QueryEngineHTTP) qexec).addParam("timeout", "10000");
+
+		// Execute.
+		ResultSet rs = qexec.execSelect();
+
+		// ResultSetFormatter.out(System.out, rs, query);
+		// Formating the result
+		for (; rs.hasNext();) {
+			QuerySolution r = rs.next();
+			sid = r.get("sensorID").toString();
+			observedProperty = r.get("observedProperty").toString();
+			// System.out.println("observedProperty: \n"+observedProperty);
+		}
+		qexec.close();
+
+		if (returnType == "sid") {
+			return sid;
+		    } else
+			return observedProperty;
+
+	}
+
+	private String getCQELSquery(String sensorID, String capability, String ObservedProperty) {
+//		SensorID = "1409752298064700000";
+		String selectClause = "SELECT ";
+		String whereClause = "\nWHERE {";
+		String streamClause = "\n STREAM ";
+		System.out.println("");
+		//SPARQL query startingtime t2
+//		String sensorID= getSensorIDorObservedProperty(uid, capability, "sid");
+//		String ObservedProperty=getSensorIDorObservedProperty(uid, capability, "op");
+		// SPARQL query end time t3
+		String CQELSquery = "";
+		String prefix = "prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> \n"
+				+ "prefix ssn: <http://purl.oclc.org/NET/ssnx/ssn#> \n"
+				+ "prefix lsm: <http://lsm.deri.ie/ont/lsm.owl#> \n"
+				+ "prefix obp: <http://lsm.deri.ie/resource#> \n"
+				+ "prefix lbl: <http://www.w3.org/2000/01/rdf-schema#> \n";
+		
+		CQELSquery = prefix 
+				+ selectClause + "?" + capability + " ?type "
+				+ whereClause + streamClause + "<"
+				+ sensorID + ">"
+				+ getTimeWindowClause("10", "s") + "{ \n" + "?ob "
+				+ "rdf:type " + "ssn:Observation. \n" + "?value "
+				+ "ssn:observedProperty " + "<"
+				+ ObservedProperty
+				+ ">. \n" + "?ob " + "ssn:featureOfInterest " + "?foi. \n"
+				+ "?value " + "lsm:isObservedPropertyOf " + "?ob. \n"
+				+ "?value " + "lsm:value " + "?" + capability + ". \n"
+				+ " ?value " +"lbl:label " +"?type.\n"
+				+ "} } ";
+		// System.out.println("Transformed CQELSquery:##################################\n\n"
+		// + CQELSquery);
+		return CQELSquery;
+	}
+
+	private String getTimeWindowClause(String timeWindowSize,
+			String timeUnit) {
+
+		String TimeWindowClause = " [RANGE " + timeWindowSize + timeUnit + "] ";
+
+		// System.out.println("Time Window:" + TimeWindowClause);
+		return TimeWindowClause;
+	}
+	
+//////////Threshold Query
+	private String getThreshold(String meetingID) {
+		String Threshold="";
+		
+		String Type="";
+	
+		// TO DO sparql query
+		String getThresholdQuery = "select ?sensorId ?threshold ?type where{"
+				+ "<"+meetingID+"> <http://www.insight-centre.org/ontologies/2015/02/06/mms_ioe#hasIOECapability> ?capability."
+				+ "?capability <http://www.insight-centre.org/ontologies/2015/02/06/mms_ioe#hasSensor> ?sensorId."
+				+ "?sensorId <http://www.insight-centre.org/ontologies/2015/02/06/mms_ioe#hasThreshold> ?threshold."
+				+ "?sensorId <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.insight-centre.org/ontologies/2015/02/06/mms_ioe#Sensor>."
+				+ "?sensorId <http://www.insight-centre.org/ontologies/2015/02/06/mms_ioe#hasSensorName> ?type."
+				+ "}";
+//		 System.out.println("sensorIDorObservedPropertyQuery: \n" + sensorIDorObservedPropertyQuery);
+	
+		Query query = QueryFactory.create(getThresholdQuery);
+		QueryExecution qexec = QueryExecutionFactory.sparqlService("http://srvgal89.deri.ie:8007/sparql", query);
+//				"http://srvgal90.deri.ie:8890/sparql", query,"http://lsm.deri.ie/OpenIoT/eventcalender#");
+				
+	
+	
+		// Set the DBpedia specific timeout.
+//		((QueryEngineHTTP) qexec).addParam("timeout", "10000");
+	
+		// Execute.
+		ResultSet rst = qexec.execSelect();
+	
+//		 ResultSetFormatter.out(System.out, rst, query);
+		// Formating the result
+		Map<String, String> thresholds = new HashMap();
+		logger.info("Here is outside while of thresohld query");
+		while (rst.hasNext()) {
+			QuerySolution qr = rst.next();
+			String result = qr.get("threshold").toString();
+			logger.info("result = " + result);
+			Threshold = result.substring(0, result.indexOf('^'));
+			result = qr.get("type").toString();
+			Type = result.substring(0, result.indexOf('^'));
+			logger.info("Threshold = " + Threshold );
+			logger.info("Type = " + Type );
+			thresholds.put(Type.toUpperCase(),Threshold);
+			
+		}
+//		System.out.println("thresholds = " + thresholds);
+		qexec.close();
+//		//THU
+		
+//		Map<String, String> thresholds = new HashMap();
+//		thresholds.put(Constants.NOISE,"70");
+//		thresholds.put(Constants.LIGHT,"100");
+//		thresholds.put(Constants.PROXIMITY, "0"); // 0: close; 1: far
+//		thresholds.put(Constants.USER_PLACE,"0"); // 0: public; 1: private
+//		thresholds.put(Constants.USER_ACTIVITY,"0");//0: no_free, 1: free
+		cqelsManager.getMeetingThresholds().put(meetingID, thresholds);
+		return Threshold;
+
+}
+	//main class for testing
+//	public void main(String[] args) {
+//				System.out.println(getCQELSquery("kaysar2", "Noise"));
+//                                  }//end of main
+
+	
+	
+} //End of class
+
+
+

@@ -1,0 +1,58 @@
+**********************************************************************************************
+**********************************************************************************************
+IoT-Enabled OpenMeeting Local Environment Setup, Build/Run and svn Instruction
+**********************************************************************************************
+**********************************************************************************************
+
+1) 	Download https://subversion.deri.ie/lion2urq/CiscoTP/DevCode/OpenMeetings/IoT-MMS/Openmeetings%203.0.x/
+	svn checkout https://subversion.deri.ie/lion2urq/CiscoTP/DevCode/OpenMeetings/IoT-MMS/Openmeetings%203.0.x/
+2)	install ant, svn, mysql in your machine and also install all the plugins listed here (http://openmeetings.apache.org/BuildInstructions_3.0.x.html)
+3) 	in mysql create database name “openmeetings”
+	CREATE DATABASE openmeetings DEFAULT CHARACTER SET 'utf8’;
+	GRANT ALL PRIVILEGES ON openmeetings.* TO 'openmeetings'@'localhost'IDENTIFIED BY 'password' WITH GRANT OPTION;
+	quit
+4)     remember here the username is also “openmeetings”, you might have root for default installation without password. 
+5) 
+5) 	import project in eclipse. Two ways:
+	a) as existing java appliation
+	b) if error in the first way then checkout code to eclipse directly from svn.
+6)	wait for resolving the dependencies by ivy.
+6) 	Go to the project explorer from Terminal and build it
+	ant -Ddb=mysql
+4) 	1st time it might fail in mac OSX. if again build error after ant -Ddb=mysql follow step 8
+	In Mac 10.8.5 (if you have 32-bit JVM) build again it will show some compilation error like bellow
+	
+	org.openlaszlo.sc.CompilerError: tunit/line unknown: , 
+	in line: Error: This Java instance does not support a 32-bit JVM.
+
+	It should be solved by editing one file from bellow directory:
+
+	3.0.x/build/openlaszlo46/WEB-INF/flexsdk/4.6.0/bin/mxmlc
+
+	Comment:
+	# if [ "$isOSX" != "" -a "$HOSTTYPE" = "x86_64" -a "$check64" != "" ]; then
+	# 	D32='-d64'
+	# fi
+
+9) 	Go to the project explorer from Terminal and build it
+	ant -Ddb=mysql
+
+11) 	go to dist/red5
+	run: ./red5.sh
+
+12) if you have changed in source files and want to update in svn, follow some instruction bellow:
+	1) at first check the svn status.
+		svn status
+	2) if new file, add it at first, then commit it
+		svn add <local file directory>
+		svn commit -m "new file"
+	3) if old file, commit it directly
+		svn commit -m "old file update"
+	4) if want to delete, svn delete <local directory>, then commit it
+		svn delete <local directory>
+		svn commit -m "delete branch or file"
+	5) if you want to check out specific file in another local directory follow the bellow example:
+		svn co https://subversion.deri.ie/lion2urq/CiscoTP/ CiscoTP/D2/ --depth empty
+		cd CiscoTP/D2/
+		svn up D2-Semantic_Integration_Stream_Processing.docx
+13) you can commit to svn directly from eclipse subversion plugin.
